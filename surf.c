@@ -209,9 +209,11 @@ static void decidenewwindow(WebKitPolicyDecision *d, Client *c);
 static void decideresource(WebKitPolicyDecision *d, Client *c);
 static void insecurecontent(WebKitWebView *v, WebKitInsecureContentEvent e,
                             Client *c);
-static void downloadstarted(WebKitWebContext *wc, WebKitDownload *d,
-                            Client *c);
-static void responsereceived(WebKitDownload *d, GParamSpec *ps, Client *c);
+static void downloadstarted(WebKitWebContext *wc, WebKitDownload *d, Client *c);
+static gboolean downloaddecide(WebKitDownload *d, gchar *suggested_filename, Client *c);
+static void downloadprogress(WebKitDownload *d, GParamSpec *ps, Client *c);
+static void downloadfinished(WebKitDownload *d, Client *c);
+static void downloadfailed(WebKitDownload *d, GError *err, Client *c);
 static void download(Client *c, WebKitURIResponse *r);
 static gboolean viewusrmsgrcv(WebKitWebView *v, WebKitUserMessage *m,
                               gpointer u);
@@ -1737,17 +1739,70 @@ insecurecontent(WebKitWebView *v, WebKitInsecureContentEvent e, Client *c)
 void
 downloadstarted(WebKitWebContext *wc, WebKitDownload *d, Client *c)
 {
-	g_signal_connect(G_OBJECT(d), "notify::response",
-	                 G_CALLBACK(responsereceived), c);
+	g_signal_connect(d, "decide-destination",
+	                 G_CALLBACK(downloaddecide), c);
+	g_signal_connect(d, "notify::estimated-progress",
+	                 G_CALLBACK(downloadprogress), c);
+	g_signal_connect(d, "failed",
+	                 G_CALLBACK(downloadfailed), c);
+	g_signal_connect(d, "finished",
+	                 G_CALLBACK(downloadfinished), c);
 }
-
-void
-responsereceived(WebKitDownload *d, GParamSpec *ps, Client *c)
+ 
+gboolean
+downloaddecide(WebKitDownload *d, gchar *suggested_filename, Client *c)
 {
-	download(c, webkit_download_get_response(d));
-	webkit_download_cancel(d);
+	gchar *path, *uri;
+ 
+	path = g_build_filename(downdir, suggested_filename, NULL);
+	uri  = g_filename_to_uri(path, NULL, NULL);
+	webkit_download_set_destination(d, uri);
+	g_free(uri);
+	g_free(path);
+ 
+	return FALSE; /* FALSE = proceed, TRUE = cancel */
 }
-
+ 
+static void
+downloadprogress(WebKitDownload *d, GParamSpec *ps, Client *c)
+{
+	gdouble progress;
+	guint64 received, total;
+	WebKitURIResponse *resp;
+	gchar *title;
+ 
+	progress = webkit_download_get_estimated_progress(d);
+	received = webkit_download_get_received_data_length(d);
+	resp     = webkit_download_get_response(d);
+	total    = resp ? webkit_uri_response_get_content_length(resp) : 0;
+ 
+	if (!c->win)
+		return;
+ 
+	title = g_strdup_printf("[%d%% %" G_GUINT64_FORMAT "/%" G_GUINT64_FORMAT "B] %s",
+	    (int)(progress * 100), received, total,
+	    c->title ? c->title : "");
+	gtk_window_set_title(GTK_WINDOW(c->win), title);
+	g_free(title);
+}
+ 
+static void
+downloadfailed(WebKitDownload *d, GError *err, Client *c)
+{
+	fprintf(stderr, "surf: download failed: %s\n",
+	        err ? err->message : "(unknown error)");
+	updatetitle(c);
+}
+ 
+static void
+downloadfinished(WebKitDownload *d, Client *c)
+{
+	const gchar *dest = webkit_download_get_destination(d);
+	fprintf(stderr, "surf: download finished: %s\n",
+	        dest ? dest : "(unknown destination)");
+	updatetitle(c);
+}
+ 
 void
 download(Client *c, WebKitURIResponse *r)
 {

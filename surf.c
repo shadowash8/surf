@@ -1747,6 +1747,10 @@ downloadstarted(WebKitWebContext *wc, WebKitDownload *d, Client *c)
 	                 G_CALLBACK(downloadfailed), c);
 	g_signal_connect(d, "finished",
 	                 G_CALLBACK(downloadfinished), c);
+  char *cmd[] = { "notify-send", "-i", "folder-download",
+                  "Download started", NULL };
+  Arg a = { .v = cmd };
+  spawn(c, &a);
 }
  
 gboolean
@@ -1791,6 +1795,10 @@ downloadfailed(WebKitDownload *d, GError *err, Client *c)
 {
 	fprintf(stderr, "surf: download failed: %s\n",
 	        err ? err->message : "(unknown error)");
+  char *cmd[] = { "notify-send", "-i", "folder-download",
+          "Download failed", err ? err->message : "unknown error", NULL };
+  Arg a = { .v = cmd };
+  spawn(c, &a);
 	updatetitle(c);
 }
  
@@ -1800,6 +1808,10 @@ downloadfinished(WebKitDownload *d, Client *c)
 	const gchar *dest = webkit_download_get_destination(d);
 	fprintf(stderr, "surf: download finished: %s\n",
 	        dest ? dest : "(unknown destination)");
+  char *cmd[] = { "notify-send", "-i", "folder-download",
+                  "Download finished", (char *)dest, NULL };
+  Arg a = { .v = cmd };
+  spawn(c, &a);
 	updatetitle(c);
 }
  
